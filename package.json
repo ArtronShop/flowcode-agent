@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "bin": "dist/src/index.js",
   "scripts": {
+    "dev": "tsx watch index.ts",
     "start": "tsx index.ts",
     "build": "tsc",
-    "gen": "buf generate",
+    "dist": "npm run build && pkg . && powershell -ExecutionPolicy Bypass -File fix-subsystem.ps1",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -22,14 +24,27 @@
   },
   "homepage": "https://github.com/ArtronShop/flowcode-agent#readme",
   "dependencies": {
-    "@types/node": "^25.5.2",
+    "auto-launch": "^5.0.6",
     "serialport": "^13.0.0",
-    "ts-node": "^10.9.2",
+    "systray2": "^2.1.4",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3",
     "ws": "^8.20.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "@types/auto-launch": "^5.0.5",
+    "@types/node": "^25.5.2",
+    "@types/ws": "^8.18.1",
+    "copyfiles": "^2.4.1",
+    "esbuild": "^0.28.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
+  },
+  "pkg": {
+    "scripts": "dist/src/main.js",
+    "assets": [
+      "node_modules/@serialport/bindings-cpp/prebuilds/**/*"
+    ],
+    "targets": ["node18-win-x64"],
+    "outputPath": "dist"
   }
 }

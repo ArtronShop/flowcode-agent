@@ -1,5 +1,8 @@
 import * as http from "http";
+import { execFile } from "child_process";
 import { WebSocketServer, WebSocket } from "ws";
+import AutoLaunch from "auto-launch";
+import { load_configs, get_configs, CONFIG_FILE } from "./configs";
 import {
     arduino_dir_init,
     arduino_check_and_install_core,
@@ -19,7 +22,38 @@ import {
     sketch_delete,
     sketch_list,
     type OnData,
-} from "./src/arduino";
+} from "./arduino";
+import SysTray from 'systray2';
+import { exit } from 'node:process';
+
+// ── load configs on startup ────────────────────────────────────────────────
+
+load_configs();
+
+const autoLaunch = new AutoLaunch({ name: "FlowcodeAgent", path: process.execPath });
+
+async function apply_auto_start() {
+    const enabled = get_configs().auto_start;
+    const isEnabled = await autoLaunch.isEnabled();
+    if (enabled && !isEnabled) {
+        await autoLaunch.enable();
+        console.log("Auto-start enabled");
+    } else if (!enabled && isEnabled) {
+        await autoLaunch.disable();
+        console.log("Auto-start disabled");
+    }
+}
+
+apply_auto_start().catch(err => console.error("auto-launch error:", err));
+
+function open_settings_and_reload() {
+    const notepad = execFile("notepad.exe", [CONFIG_FILE]);
+    notepad.on("close", () => {
+        load_configs();
+        console.log("Configs reloaded:", CONFIG_FILE);
+        apply_auto_start().catch(err => console.error("auto-launch error:", err));
+    });
+}
 
 // ── HTTP server (CORS allow all) ───────────────────────────────────────────
 
@@ -201,6 +235,47 @@ wss.on("connection", (ws, req) => {
 
 const PORT = Number(process.env.PORT) || 8080;
 server.listen(PORT, () => {
-    console.log(`flowcode-agent listening on http://0.0.0.0:${PORT}`);
-    console.log(`WebSocket endpoint: ws://0.0.0.0:${PORT}`);
+    console.log(`FlowCode Agent listening on http://0.0.0.0:${PORT}`);
 });
+
+// ── Tray ───────────────────────────────────────────────────────────────────
+
+const systray = new SysTray({
+  menu: {
+    // you should using .png icon in macOS/Linux, but .ico format in windows
+    icon: '',
+    title: 'Systray Test',
+    tooltip: 'Tips',
+    items: [
+      {
+        title: 'Settings...',
+        tooltip: 'Open settings file to edit',
+        checked: false,
+        enabled: true,
+      },
+      {
+        title: 'Exit',
+        tooltip: 'Exit from the app.',
+        checked: false,
+        enabled: true,
+      },
+    ],
+  },
+  debug: false,
+  copyDir: true, // copy go tray binary to outside directory, useful for packing tool like pkg.
+});
+
+systray.ready().then(() => {
+  systray.onClick((event) => {
+    if (event.seq_id === 0) {
+      open_settings_and_reload();
+    } else if (event.seq_id === 1) {
+      systray.kill();
+      console.log("Exit");
+      exit();
+    }
+  });
+}).catch(err => {
+  console.log('systray failed to start: ' + err.message)
+})
+
