@@ -151,6 +151,8 @@ wss.on("connection", (ws, req) => {
                     // params: { port, baudRate }
                     await port_connect(params.port, params.baudRate ?? 9600, (data) => {
                         send(ws, id, "port.data", { port: params.port, data });
+                    }, () => {
+                        send(ws, id, "port.close", { port: params.port });
                     });
                     result = { ok: true };
                     break;

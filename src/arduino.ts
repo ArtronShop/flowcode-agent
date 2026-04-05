@@ -353,6 +353,7 @@ export async function version() {
 // ── serial port ────────────────────────────────────────────────────────────
 
 export type OnSerialData = (data: string) => void;
+export type OnSerialClose = () => void;
 
 const _ports = new Map<string, SerialPort>();
 
@@ -360,21 +361,37 @@ export async function port_list() {
     return SerialPort.list();
 }
 
-export async function port_connect(portPath: string, baudRate: number, onData: OnSerialData) {
-    if (_ports.has(portPath)) {
-        throw new Error(`Port ${portPath} already open`);
+export async function port_connect(portPath: string, baudRate: number, onData: OnSerialData, onClose: OnSerialClose) {
+    let sp: SerialPort;
+    if (!_ports.has(portPath)) {
+        sp = new SerialPort({ 
+            path: portPath, 
+            baudRate, 
+            autoOpen: false,
+        });
+        await new Promise<void>((resolve, reject) => {
+            sp.open(err => err ? reject(err) : resolve());
+        });
+    } else {
+        sp = _ports.get(portPath);
+        sp.update({ baudRate });
+        sp.removeAllListeners();
     }
-    const sp = new SerialPort({ path: portPath, baudRate, autoOpen: false });
-    await new Promise<void>((resolve, reject) => {
-        sp.open(err => err ? reject(err) : resolve());
+    sp.set({
+        dtr: true,
+        rts: true
     });
     sp.on("data", (chunk: Buffer) => onData(chunk.toString()));
+    sp.on("close", () => {
+        _ports.delete(portPath);
+        onClose();
+    });
     _ports.set(portPath, sp);
 }
 
 export async function port_disconnect(portPath: string) {
     const sp = _ports.get(portPath);
-    if (!sp) throw new Error(`Port ${portPath} not open`);
+    if (!sp) return;
     await new Promise<void>((resolve, reject) => {
         sp.close(err => err ? reject(err) : resolve());
     });
