@@ -2,7 +2,9 @@ import * as http from "http";
 import { execFile } from "child_process";
 import { WebSocketServer, WebSocket } from "ws";
 import AutoLaunch from "auto-launch";
-import { load_configs, get_configs, CONFIG_FILE } from "./configs";
+import { load_configs, get_configs, CONFIG_FILE, CONFIG_DIR } from "./configs";
+import os from 'node:os';
+import fs from 'node:fs';
 import {
     arduino_dir_init,
     arduino_check_and_install_core,
@@ -25,6 +27,7 @@ import {
 } from "./arduino";
 import SysTray from 'systray2';
 import { exit } from 'node:process';
+import path from "node:path";
 
 // ── load configs on startup ────────────────────────────────────────────────
 
@@ -238,14 +241,46 @@ server.listen(PORT, () => {
     console.log(`FlowCode Agent listening on http://0.0.0.0:${PORT}`);
 });
 
+// ── Extract Assets ─────────────────────────────────────────────────────────
+
+const ASSET_DIR = path.join(CONFIG_DIR, "asset");
+
+function extractAssets() {
+    if (!fs.existsSync(ASSET_DIR)) {
+        fs.mkdirSync(ASSET_DIR, { recursive: true });
+    }
+
+    const filesToExtract = ["logo.ico", "logo.png"];
+
+    for (const fileName of filesToExtract) {
+        const targetPath = path.join(ASSET_DIR, fileName);
+        if (!fs.existsSync(targetPath)) {
+            // dev: __dirname = src/  → up 1
+            // build/pkg: __dirname = dist/src/ → up 2
+            const internalPath = __dirname.includes(`${path.sep}dist${path.sep}`)
+                ? path.join(__dirname, "..", "..", "asset", fileName)
+                : path.join(__dirname, "..", "asset", fileName);
+            try {
+                fs.writeFileSync(targetPath, fs.readFileSync(internalPath));
+                console.log(`Extracted: ${fileName} → ${targetPath}`);
+            } catch (err: any) {
+                console.error(`Failed to extract ${fileName}:`, err.message);
+            }
+        }
+    }
+}
+
+extractAssets();
+
 // ── Tray ───────────────────────────────────────────────────────────────────
+
+const ICON_PATH = path.join(ASSET_DIR, os.platform() === "win32" ? "logo.ico" : "logo.png");
 
 const systray = new SysTray({
   menu: {
-    // you should using .png icon in macOS/Linux, but .ico format in windows
-    icon: '',
-    title: 'Systray Test',
-    tooltip: 'Tips',
+    icon: ICON_PATH,
+    title: 'FlowCode Agent',
+    tooltip: 'FlowCode Agent',
     items: [
       {
         title: 'Settings...',

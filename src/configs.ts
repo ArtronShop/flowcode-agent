@@ -20,7 +20,7 @@ const arduin_cli_name: Record<string, string> = {
     win32: "arduino-cli.exe",
 };
 
-const CONFIG_DIR = path.join(os.homedir(), "AppData", "Local", "FlowcodeAgent");
+export const CONFIG_DIR = path.join(os.homedir(), "AppData", "Local", "FlowcodeAgent");
 export const CONFIG_FILE = path.join(CONFIG_DIR, "configs.json");
 
 const DEFAULT_PREFS_PATH = path.join(os.homedir(), "AppData", "Local", "Arduino15", "preferences.txt");
