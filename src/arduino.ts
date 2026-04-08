@@ -59,7 +59,7 @@ export type OnData = (chunk: { stream: "stdout" | "stderr"; data: string }) => v
 async function run(cmd: string, onData?: OnData): Promise<{ stdout: string; stderr: string; out_json: any }> {
     console.log(cmd);
     return new Promise((resolve, reject) => {
-        const proc = spawn(cmd, [], { shell: true });
+        const proc = spawn(cmd, [], { shell: true, windowsHide: true });
         let stdout = "", stderr = "";
         proc.stdout.on("data", d => {
             const data = d.toString();
