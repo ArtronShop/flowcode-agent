@@ -7,7 +7,8 @@
       "Bash(node -e \"const c = require\\('@connectrpc/connect'\\); console.log\\(Object.keys\\(c\\).filter\\(k => k.includes\\('client'\\) || k.includes\\('Client'\\)\\).join\\('\\\\n'\\)\\)\")",
       "Bash(npx tsc:*)",
       "Bash(node -e \"try { require\\('@vercel/ncc'\\); console.log\\('ncc ok'\\); } catch\\(e\\) { console.log\\('no ncc'\\); }\")",
-      "Bash(where rcedit.exe)"
+      "Bash(where rcedit.exe)",
+      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\sonth\\\\GitHub\\\\flowcode-agent\" | Where-Object { !$_.PSIsContainer } | ForEach-Object { $_.Name })"
     ]
   }
 }

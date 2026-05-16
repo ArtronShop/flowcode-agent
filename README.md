@@ -12,12 +12,14 @@ A lightweight Windows background agent that bridges [FlowCode](https://github.co
 
 ### Installation
 
-1. Download the latest `flowcode-agent-vX.X.X.exe` from [Releases](../../releases).
+1. Download the latest `flowcode-agent-V2.x.x.exe` from [Releases](../../releases).
 2. Run the file — no installation required. The agent starts immediately and appears in the system tray.
 3. A config file is created automatically at:
    ```
    %LocalAppData%\FlowcodeAgent\configs.json
    ```
+
+> Only one instance can run at a time. Opening a second copy exits immediately.
 
 ### Closing the Agent
 
@@ -44,42 +46,59 @@ This opens `configs.json` in Notepad. Save and close the file — settings reloa
 
 ## How It Works
 
-FlowCode Agent runs an HTTP + WebSocket server on `ws://localhost:8080`.
+FlowCode Agent runs a WebSocket server on port `8080` (configurable via `PORT` env var).
 
-- The browser connects via WebSocket and sends JSON messages in the format:
-  ```json
-  { "id": "req-1", "action": "compile", "params": { "sketch": "MySketch", "fqbn": "arduino:avr:uno" } }
-  ```
-- The agent executes the corresponding `arduino-cli` command and sends back results:
-  ```json
-  { "id": "req-1", "type": "result", "payload": { "ok": true } }
-  ```
-- Long-running actions (`compile`, `upload`, `core.install`, `lib.install`) stream stdout/stderr in real-time:
-  ```json
-  { "id": "req-1", "type": "stream", "payload": { "stream": "stdout", "data": "..." } }
-  ```
+- WebSocket: `ws://localhost:8080/`
+
+The browser connects via WebSocket and sends JSON messages:
+
+```json
+{ "id": "req-1", "action": "compile", "params": { "sketch": "MySketch", "fqbn": "arduino:avr:uno" } }
+```
+
+The agent executes the corresponding `arduino-cli` command and sends back results:
+
+```json
+{ "id": "req-1", "type": "result", "payload": { "ok": true } }
+```
+
+Long-running actions (`compile`, `upload`, `core.install`, `lib.install`) stream stdout/stderr in real-time:
+
+```json
+{ "id": "req-1", "type": "stream", "payload": { "stream": "stdout", "data": "..." } }
+```
 
 ### Supported Actions
 
-| Action | Description |
-|--------|-------------|
-| `board.list` | List connected boards |
-| `board.listall` | List all supported boards |
-| `core.install` | Install an Arduino core (streaming) |
-| `lib.install` | Install libraries (streaming) |
-| `sketch.list` | List all sketches |
-| `sketch.create` | Create a new sketch |
-| `sketch.read` | Read sketch source code |
-| `sketch.write` | Write sketch source code |
-| `sketch.delete` | Delete a sketch |
-| `compile` | Compile a sketch (streaming) |
-| `upload` | Upload a sketch to a board (streaming) |
-| `port.list` | List available serial ports |
-| `port.connect` | Open a serial port and stream incoming data |
-| `port.disconnect` | Close a serial port |
-| `port.write` | Send data to a serial port |
-| `version` | Get arduino-cli version |
-| `config.init` | Initialize arduino-cli config and directories |
+| Action | Params | Description |
+|--------|--------|-------------|
+| `board.list` | — | List connected boards |
+| `board.listall` | `fqbn?` | List all supported boards |
+| `core.install` | `id`, `version`, `package_index?` | Install an Arduino core (streaming) |
+| `lib.install` | `depends: string[]` | Install libraries (streaming) |
+| `sketch.list` | — | List all sketches |
+| `sketch.create` | `name`, `code?` | Create a new sketch |
+| `sketch.read` | `name` | Read sketch source code |
+| `sketch.write` | `name`, `code` | Write sketch source code |
+| `sketch.delete` | `name` | Delete a sketch |
+| `compile` | `sketch`, `fqbn`, `boardOption?` | Compile a sketch (streaming) |
+| `upload` | `sketch`, `fqbn`, `port`, `boardOption?` | Upload a sketch to a board (streaming) |
+| `port.list` | — | List available serial ports |
+| `port.connect` | `port`, `baudRate?` | Open a serial port and stream incoming data |
+| `port.disconnect` | `port` | Close a serial port |
+| `port.write` | `port`, `data` | Send data to a serial port |
+| `version` | — | Get arduino-cli version |
+| `config.init` | `additional_urls?` | Initialize arduino-cli config and directories |
+
+### Response Types
+
+| `type` | When |
+|--------|------|
+| `result` | Action completed successfully |
+| `stream` | Real-time stdout/stderr from a running process |
+| `port.data` | Data received from an open serial port |
+| `port.close` | Serial port was disconnected |
+| `error` | Action failed |
 
 ---
 
@@ -87,7 +106,7 @@ FlowCode Agent runs an HTTP + WebSocket server on `ws://localhost:8080`.
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) 18+
+- [Rust](https://rustup.rs/) (stable, 1.75+)
 - Arduino IDE 2 (for `arduino-cli`)
 
 ### Setup
@@ -95,32 +114,49 @@ FlowCode Agent runs an HTTP + WebSocket server on `ws://localhost:8080`.
 ```bash
 git clone https://github.com/ArtronShop/flowcode-agent.git
 cd flowcode-agent
-npm install
 ```
 
 ### Run in dev mode
 
 ```bash
-npm run dev
+cargo run
 ```
 
-The server starts on `http://localhost:8080`. Source files are watched — the process restarts automatically on save.
+The server starts on `ws://localhost:8080/`. A console window is shown in dev mode so you can see log output.
+
+### Project structure
+
+```
+flowcode-agent/
+├── Cargo.toml          # Rust project & dependencies
+├── build.rs            # Embeds logo.ico into the exe at compile time
+├── build.ps1           # Release build script → build/flowcode-agent-Vx.x.x.exe
+├── asset/
+│   ├── logo.ico        # App icon (embedded into exe)
+│   └── logo.png        # Tray icon (embedded into binary)
+└── src/
+    ├── main.rs         # WebSocket server + system tray + single-instance guard
+    ├── configs.rs      # Config file management
+    └── arduino.rs      # arduino-cli wrapper + sketch helpers
+```
 
 ---
 
 ## Building
 
-Build a standalone Windows executable (`.exe`):
+Build a versioned release exe using the provided script:
 
-```bash
-npm run dist
+```powershell
+.\build.ps1
 ```
 
-This will:
-1. Compile TypeScript → `dist/`
-2. Download `rcedit.exe` if not already present (used to embed the app icon)
-3. Bundle everything into `dist/flowcode-agent.exe` using [pkg](https://github.com/vercel/pkg)
-4. Patch the PE subsystem to GUI (no console window)
-5. Output the final versioned file as `dist/flowcode-agent-vX.X.X.exe`
+Output: `build\flowcode-agent-V2.x.x.exe`
 
-> **Note:** The build targets Windows x64 (`node18-win-x64`). Run the build on Windows.
+The script reads the version from `Cargo.toml` automatically. The binary has the app icon embedded and shows no console window when launched normally. Running it from a terminal (cmd / PowerShell) still prints log output to that terminal.
+
+To build manually without the script:
+
+```bash
+cargo build --release
+# output: target/release/flowcode-agent.exe
+```
