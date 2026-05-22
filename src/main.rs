@@ -43,6 +43,7 @@ use configs::{config_file, get_configs, load_configs};
 struct AppState {
     port_writers: Mutex<HashMap<String, Box<dyn serialport::SerialPort + Send>>>,
     port_stops: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    port_tasks: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
 }
 
 // ── WebSocket sender type ──────────────────────────────────────────────────
@@ -86,6 +87,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (sink, mut stream) = socket.split();
     let ws = Arc::new(Mutex::new(sink));
 
+    // Track which ports this connection opened so we can clean up on disconnect
+    let session_ports: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
+
     println!("[ws] client connected");
 
     while let Some(Ok(Message::Text(text))) = stream.next().await {
@@ -109,13 +113,21 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         let params = msg.params.unwrap_or(json!({}));
         let ws = ws.clone();
         let state = state.clone();
+        let session_ports = session_ports.clone();
 
         tokio::spawn(async move {
-            match dispatch(&action, &params, &ws, &state, id.clone()).await {
+            match dispatch(&action, &params, &ws, &state, id.clone(), &session_ports).await {
                 Ok(payload) => ws_send(&ws, id.as_deref(), "result", payload).await,
                 Err(e) => ws_error(&ws, id.as_deref(), &e).await,
             }
         });
+    }
+
+    // WebSocket closed — disconnect all ports opened by this session
+    let ports: Vec<String> = session_ports.lock().await.drain(..).collect();
+    for port in ports {
+        println!("[ws] auto-disconnect port {} on client disconnect", port);
+        let _ = disconnect_serial(&state, &port).await;
     }
 
     println!("[ws] client disconnected");
@@ -129,6 +141,7 @@ async fn dispatch(
     ws: &WsTx,
     state: &Arc<AppState>,
     id: Option<String>,
+    session_ports: &Arc<Mutex<Vec<String>>>,
 ) -> Result<Value, String> {
     let on_data: Option<OnData> = Some(make_on_data(ws.clone(), id.clone()));
 
@@ -209,10 +222,17 @@ async fn dispatch(
         }
 
         "upload" => {
+            let port = str_param!("port");
+            // Auto-disconnect serial if the target port is currently open
+            if state.port_stops.lock().await.contains_key(port) {
+                println!("[upload] auto-disconnect {} before upload", port);
+                disconnect_serial(state, port).await?;
+                session_ports.lock().await.retain(|p| p != port);
+            }
             upload(
                 str_param!("sketch"),
                 str_param!("fqbn"),
-                str_param!("port"),
+                port,
                 str_param!("boardOption", opt),
                 on_data,
             )
@@ -244,13 +264,15 @@ async fn dispatch(
                 .get("baudRate")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(9600) as u32;
-            connect_serial(state, ws, port_path, baud_rate, id).await?;
+            connect_serial(state, ws, port_path.clone(), baud_rate, id).await?;
+            session_ports.lock().await.push(port_path);
             Ok(json!({ "ok": true }))
         }
 
         "port.disconnect" => {
             let port_path = str_param!("port");
             disconnect_serial(state, port_path).await?;
+            session_ports.lock().await.retain(|p| p != port_path);
             Ok(json!({ "ok": true }))
         }
 
@@ -324,7 +346,7 @@ async fn connect_serial(
     let id_clone = id.clone();
     let rt = tokio::runtime::Handle::current();
 
-    tokio::task::spawn_blocking(move || {
+    let task = tokio::task::spawn_blocking(move || {
         let mut reader = reader;
         let mut buf = [0u8; 1024];
         loop {
@@ -354,14 +376,23 @@ async fn connect_serial(
         });
     });
 
+    state.port_tasks.lock().await.insert(port_path, task);
+
     Ok(())
 }
 
 async fn disconnect_serial(state: &Arc<AppState>, port_path: &str) -> Result<(), String> {
+    // Signal the reader thread to stop
     if let Some(flag) = state.port_stops.lock().await.remove(port_path) {
         flag.store(true, Ordering::Relaxed);
     }
+    // Drop the writer handle
     state.port_writers.lock().await.remove(port_path);
+    // Wait for the reader thread to fully exit and release its handle.
+    // The port is only free for other processes (arduino-cli) once this completes.
+    if let Some(task) = state.port_tasks.lock().await.remove(port_path) {
+        let _ = task.await;
+    }
     Ok(())
 }
 
@@ -593,6 +624,7 @@ fn main() {
     let state = Arc::new(AppState {
         port_writers: Mutex::new(HashMap::new()),
         port_stops: Mutex::new(HashMap::new()),
+        port_tasks: Mutex::new(HashMap::new()),
     });
 
     // Run async server on a background thread

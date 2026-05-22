@@ -8,7 +8,8 @@
       "Bash(npx tsc:*)",
       "Bash(node -e \"try { require\\('@vercel/ncc'\\); console.log\\('ncc ok'\\); } catch\\(e\\) { console.log\\('no ncc'\\); }\")",
       "Bash(where rcedit.exe)",
-      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\sonth\\\\GitHub\\\\flowcode-agent\" | Where-Object { !$_.PSIsContainer } | ForEach-Object { $_.Name })"
+      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\sonth\\\\GitHub\\\\flowcode-agent\" | Where-Object { !$_.PSIsContainer } | ForEach-Object { $_.Name })",
+      "Bash(cargo check *)"
     ]
   }
 }
